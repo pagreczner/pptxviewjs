@@ -8,6 +8,20 @@ PptxViewJS is a client-side JavaScript library that parses `.pptx` files and ren
 
 ---
 
+## Fork Notice
+
+This package is a fork of [`gptsci/pptxviewjs`](https://github.com/gptsci/pptxviewjs), published as `@pagreczner/pptxviewjs`.
+
+This fork has been refactored from a dist-only layout into a source-driven, rebuildable project:
+
+- Recovered and restored the `src/` codebase from shipped source maps
+- Recreated a reproducible Rollup build pipeline for `dist/` outputs
+- Added smoke-test and maintainer workflow documentation for ongoing changes
+
+The canonical source of truth in this fork is now `src/`; `dist/` is generated.
+
+---
+
 ## 🎮 Interactive Demo — PptxGenJS + PptxViewJS
 
 > **[Try it live →](https://gptsci.com/pptxviewjs/demos/interactive.html)**
@@ -53,11 +67,11 @@ Choose your preferred method to install **PptxViewJS**:
 ### Quick Install (Node-based)
 
 ```bash
-npm install pptxviewjs
+npm install @pagreczner/pptxviewjs
 ```
 
 ```bash
-yarn add pptxviewjs
+yarn add @pagreczner/pptxviewjs
 ```
 
 ### CDN (Browser Usage)
@@ -72,7 +86,7 @@ Use the UMD build via [jsDelivr](https://www.jsdelivr.com/package/npm/pptxviewjs
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <!-- PptxViewJS UMD build exposes global `PptxViewJS` -->
-<script src="https://cdn.jsdelivr.net/npm/pptxviewjs/dist/PptxViewJS.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@pagreczner/pptxviewjs/dist/PptxViewJS.min.js"></script>
 ```
 
 > Note: JSZip is required for PPTX (ZIP) parsing. Chart.js is optional and only needed when rendering charts.
@@ -114,7 +128,7 @@ PptxViewJS presentations are viewed via JavaScript by following 3 basic steps:
 #### React/TypeScript
 
 ```typescript
-import { PPTXViewer } from "pptxviewjs";
+import { PPTXViewer } from "@pagreczner/pptxviewjs";
 
 // 1. Create a new Viewer
 let viewer = new PPTXViewer({
@@ -190,6 +204,10 @@ Special Thanks:
 
 - [Alex Wong](https://ppt.gptsci.com) - Original author and maintainer
 - [gptsci.com](https://gptsci.com) - Project sponsorship and development
+
+## 🛠️ Maintainer Workflow (Fork)
+
+This fork includes a recovered `src/` tree and a rebuildable Rollup pipeline. For source-of-truth and release workflow details, see [`MAINTAINERS.md`](./MAINTAINERS.md).
 
 ## 🌟 Support the Open Source Community
 

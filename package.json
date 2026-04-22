@@ -1,6 +1,6 @@
 {
-  "name": "pptxviewjs",
-  "version": "1.1.8",
+  "name": "@pagreczner/pptxviewjs",
+  "version": "1.2.0",
   "description": "A JavaScript library for viewing PowerPoint presentations in web browsers using Canvas rendering",
   "main": "dist/PptxViewJS.cjs.js",
   "module": "dist/PptxViewJS.es.js",
@@ -23,9 +23,10 @@
   },
   "scripts": {
     "build": "npm run build:clean && rollup -c rollup.config.mjs && npm run build:types",
-    "build:min": "npm run build:clean && rollup -c rollup.config.mjs --environment BUILD=minified && npm run build:types",
+    "build:min": "npm run build:clean && cross-env BUILD=minified rollup -c rollup.config.mjs && npm run build:types",
     "build:clean": "rimraf dist && node ./cli/ensure-dist.mjs",
     "build:types": "node ./cli/copy-types.mjs",
+    "recover:src": "node ./recover-src-from-sourcemap.mjs",
     "build:watch": "rollup -c rollup.config.mjs -w",
     "build:production": "cross-env NODE_ENV=production npm run build",
     "build:public": "rimraf pptxviewjs/public && mkdir -p pptxviewjs/public && cp -r dist types LICENSE README.md package.json pptxviewjs/public/",
@@ -36,6 +37,7 @@
     "test:coverage": "jest --coverage",
     "test:ci": "jest --ci --coverage --watchAll=false",
     "test:unit": "jest test/basic.test.js test/utils.test.js test/PPTXViewer.test.js",
+    "test:smoke": "jest test/smoke.test.js",
     "test:integration": "jest test/integration.test.js",
     "test:performance": "jest test/performance.test.js",
     "test:headless": "node test/headless-load.js",
@@ -77,6 +79,14 @@
   ],
   "author": "Alex Wong",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pagreczner/pptxviewjs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pagreczner/pptxviewjs/issues"
+  },
+  "homepage": "https://github.com/pagreczner/pptxviewjs#readme",
   "peerDependencies": {
     "chart.js": ">=4.4.1",
     "jszip": ">=3.10.1"
@@ -99,7 +109,6 @@
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.1",
     "@rollup/plugin-terser": "^0.4.4",
-    "@rollup/rollup-darwin-x64": "4.50.2",
     "babel-jest": "^30.0.5",
     "canvas": "^3.1.2",
     "chart.js": "^4.4.1",
@@ -133,7 +142,8 @@
     "LICENSE"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "sideEffects": true
 }

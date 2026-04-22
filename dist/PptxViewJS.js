@@ -82,7 +82,7 @@
 		        const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
 		        const logEntry = {
 		            timestamp,
-		            level: level.toUpperCase(),
+		            level: level.toUpperCase() + 'Z',
 		            category,
 		            message,
 		            data

@@ -1,5 +1,5 @@
 /**
- * pptxviewjs v1.1.8
+ * @pagreczner/pptxviewjs v1.2.0
  * JavaScript library for viewing PowerPoint presentations in web browsers
  * 
  * Copyright 2026 gptsci.com
@@ -79,7 +79,7 @@ function requireUtils () {
 	        const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
 	        const logEntry = {
 	            timestamp,
-	            level: level.toUpperCase() + 'Z',
+	            level: level.toUpperCase(),
 	            category,
 	            message,
 	            data

@@ -10,7 +10,7 @@ PptxViewJS is a client-side JavaScript library that parses `.pptx` files and ren
 
 ## Fork Notice
 
-This package is a fork of [`gptsci/pptxviewjs`](https://github.com/gptsci/pptxviewjs), published as `@pagreczner/pptxviewjs`.
+This package is a fork of [`gptsci/pptxviewjs`](https://github.com/gptsci/pptxviewjs), published as `@petepetepete/pptxviewjs`.
 
 This fork has been refactored from a dist-only layout into a source-driven, rebuildable project:
 
@@ -67,11 +67,11 @@ Choose your preferred method to install **PptxViewJS**:
 ### Quick Install (Node-based)
 
 ```bash
-npm install @pagreczner/pptxviewjs
+npm install @petepetepete/pptxviewjs
 ```
 
 ```bash
-yarn add @pagreczner/pptxviewjs
+yarn add @petepetepete/pptxviewjs
 ```
 
 ### CDN (Browser Usage)
@@ -86,7 +86,7 @@ Use the UMD build via [jsDelivr](https://www.jsdelivr.com/package/npm/pptxviewjs
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <!-- PptxViewJS UMD build exposes global `PptxViewJS` -->
-<script src="https://cdn.jsdelivr.net/npm/@pagreczner/pptxviewjs/dist/PptxViewJS.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@petepetepete/pptxviewjs/dist/PptxViewJS.min.js"></script>
 ```
 
 > Note: JSZip is required for PPTX (ZIP) parsing. Chart.js is optional and only needed when rendering charts.
@@ -128,7 +128,7 @@ PptxViewJS presentations are viewed via JavaScript by following 3 basic steps:
 #### React/TypeScript
 
 ```typescript
-import { PPTXViewer } from "@pagreczner/pptxviewjs";
+import { PPTXViewer } from "@petepetepete/pptxviewjs";
 
 // 1. Create a new Viewer
 let viewer = new PPTXViewer({

@@ -1,5 +1,5 @@
 /**
- * @pagreczner/pptxviewjs v1.2.0
+ * @petepetepete/pptxviewjs v1.2.0
  * JavaScript library for viewing PowerPoint presentations in web browsers
  * 
  * Copyright 2026 gptsci.com

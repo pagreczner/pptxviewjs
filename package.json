@@ -1,5 +1,5 @@
 {
-  "name": "@pagreczner/pptxviewjs",
+  "name": "@petepetepete/pptxviewjs",
   "version": "1.2.0",
   "description": "A JavaScript library for viewing PowerPoint presentations in web browsers using Canvas rendering",
   "main": "dist/PptxViewJS.cjs.js",

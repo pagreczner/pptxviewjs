@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PptxViewJS Manual Harness</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="panel">
+        <h1>PptxViewJS Manual Harness</h1>
+        <p class="subtext">
+          Local-only testing harness. Upload a <code>.pptx</code> file and compare Source vs Dist rendering.
+        </p>
+      </header>
+
+      <section class="panel controls" aria-label="Viewer controls">
+        <label class="field">
+          <span>Runtime</span>
+          <select id="modeSelect">
+            <option value="source">Source (`src/index.js`)</option>
+            <option value="dist">Dist (`dist/PptxViewJS.es.js`)</option>
+          </select>
+        </label>
+
+        <label class="field file-field">
+          <span>Local File</span>
+          <input
+            id="fileInput"
+            type="file"
+            accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          />
+        </label>
+
+        <button id="prevBtn" type="button" disabled>Previous</button>
+        <button id="nextBtn" type="button" disabled>Next</button>
+        <button id="fullscreenBtn" type="button" disabled>Fullscreen</button>
+      </section>
+
+      <section class="panel status-panel" aria-label="Viewer status">
+        <div>
+          <strong>Status:</strong>
+          <span id="slideStatus">No presentation loaded</span>
+        </div>
+        <div>
+          <strong>Runtime:</strong>
+          <span id="runtimeStatus">Source (`src/index.js`)</span>
+        </div>
+      </section>
+
+      <section class="viewer-shell" id="viewerShell">
+        <canvas id="viewerCanvas" width="1280" height="720"></canvas>
+        <div class="overlay-nav" aria-hidden="true">
+          <button
+            id="overlayPrevBtn"
+            type="button"
+            class="overlay-btn overlay-btn-prev"
+            aria-label="Previous slide"
+            disabled
+          >
+            &larr;
+          </button>
+          <button
+            id="overlayNextBtn"
+            type="button"
+            class="overlay-btn overlay-btn-next"
+            aria-label="Next slide"
+            disabled
+          >
+            &rarr;
+          </button>
+          <button
+            id="overlayExitBtn"
+            type="button"
+            class="overlay-btn overlay-btn-exit"
+            aria-label="Exit fullscreen"
+          >
+            Exit
+          </button>
+          <div class="overlay-status">
+            <span id="overlaySlideStatus">Slide 0 / 0</span>
+          </div>
+        </div>
+      </section>
+
+      <p id="message" class="message" aria-live="polite">
+        Ready. Select a local <code>.pptx</code> file to begin.
+      </p>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

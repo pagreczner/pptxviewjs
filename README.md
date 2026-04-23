@@ -101,6 +101,32 @@ npm install jszip
 npm install chart.js
 ```
 
+## 🧪 Local Harness (Manual Testing)
+
+This fork includes a local manual test harness with hot reload for render debugging and regression checks.
+
+Start it with:
+
+```bash
+npm run harness:dev
+```
+
+Then open:
+
+- `http://localhost:3000/harness/`
+
+Harness capabilities:
+
+- Upload a local `.pptx` file (no remote upload path)
+- Navigate slides with **Previous** / **Next**
+- See `Slide X / Y` status and active runtime
+- Enter and exit fullscreen mode for the viewer canvas
+- Switch runtime mode between:
+  - **Source** (`src/index.js`)
+  - **Dist** (`dist/PptxViewJS.es.js`)
+
+When switching runtime mode, the harness re-initializes the viewer and reloads the currently selected file (if one is already loaded) so source-vs-dist comparisons are deterministic.
+
 ## 🚀 Universal Compatibility
 
 PptxViewJS works seamlessly in **modern web and Node environments**, thanks to dual ESM and CJS builds and zero runtime dependencies. Whether you're building a web app, an Electron viewer, or a presentation platform, the library adapts automatically to your stack.

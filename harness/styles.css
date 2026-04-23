@@ -1,0 +1,261 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --panel-border: #e3e6ef;
+  --text: #1a2238;
+  --text-muted: #5a6582;
+  --accent: #2e6ff2;
+  --accent-hover: #2558c9;
+  --accent-contrast: #ffffff;
+  --input-bg: #ffffff;
+  --input-border: #d5d9e4;
+  --input-focus: #9dbcff;
+  --success: #1a8f4a;
+  --error: #c4264a;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 6px 20px rgba(15, 23, 42, 0.08);
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.25rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+
+.subtext {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.6rem 0.75rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 220px;
+}
+
+.field span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+input[type="file"],
+select,
+button {
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+input[type="file"]:focus,
+select:focus,
+button:focus {
+  outline: none;
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 3px rgba(46, 111, 242, 0.18);
+}
+
+button {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.status-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+.status-panel strong {
+  color: var(--text);
+  font-weight: 600;
+  margin-right: 0.25rem;
+}
+
+.viewer-shell {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+}
+
+canvas {
+  width: 100%;
+  height: auto;
+  max-height: calc(100vh - 8rem);
+  border-radius: 0.5rem;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.message {
+  margin: 0;
+  color: var(--text-muted);
+  min-height: 1.3rem;
+  font-size: 0.92rem;
+}
+
+.message.error {
+  color: var(--error);
+}
+
+.message.success {
+  color: var(--success);
+}
+
+/* Fullscreen overlay nav */
+
+.overlay-nav {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+
+.viewer-shell:fullscreen {
+  background: #0b0f1a;
+  border-radius: 0;
+  padding: 0;
+}
+
+.viewer-shell:fullscreen canvas {
+  max-height: 100vh;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.viewer-shell:fullscreen .overlay-nav {
+  display: block;
+}
+
+.overlay-btn {
+  pointer-events: auto;
+  position: absolute;
+  background: rgba(255, 255, 255, 0.85);
+  color: #1a2238;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem;
+  font-size: 1rem;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.overlay-btn:hover:not(:disabled) {
+  background: #fff;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.overlay-btn-prev {
+  left: 1.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.overlay-btn-next {
+  right: 1.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.overlay-btn-exit {
+  top: 1.25rem;
+  right: 1.5rem;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.8rem;
+}
+
+.overlay-status {
+  pointer-events: none;
+  position: absolute;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  background: rgba(15, 23, 42, 0.55);
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}

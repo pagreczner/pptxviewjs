@@ -28,6 +28,7 @@
     "build:types": "node ./cli/copy-types.mjs",
     "recover:src": "node ./recover-src-from-sourcemap.mjs",
     "build:watch": "rollup -c rollup.config.mjs -w",
+    "harness:dev": "vite --host localhost --port 3000 --strictPort --open /harness/",
     "build:production": "cross-env NODE_ENV=production npm run build",
     "build:public": "rimraf pptxviewjs/public && mkdir -p pptxviewjs/public && cp -r dist types LICENSE README.md package.json pptxviewjs/public/",
     "clean": "npm run build:clean",
@@ -127,7 +128,8 @@
     "prettier": "^3.6.2",
     "puppeteer": "^24.16.2",
     "rimraf": "^5.0.7",
-    "rollup": "^4.45.1"
+    "rollup": "^4.45.1",
+    "vite": "^8.0.10"
   },
   "engines": {
     "node": ">=18.0.0"

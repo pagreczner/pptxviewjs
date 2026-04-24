@@ -6858,32 +6858,31 @@ class CDrawingDocument {
     }
 
     /**
-     * Estimate content height for a text body in pixels given a width
+     * Estimate content-area text height in pixels for a text body, given the
+     * already-inset-adjusted content width (no margin subtraction here).
+     *
+     * Callers that start from a raw shape width should subtract insets
+     * themselves (see `estimateTextBoxHeightPx`).
      */
-    estimateTextHeightPx(textBody, widthPx) {
+    estimateTextHeightPx(textBody, contentWidthPx) {
         try {
             if (!textBody || !textBody.paragraphs || textBody.paragraphs.length === 0) {return 0;}
 
-            // Use body properties margins if present
-            const bodyProps = textBody.bodyProperties || textBody.bodyPr || {};
-            const leftMargin = this.emuToPixels(bodyProps.leftMargin || 0);
-            const rightMargin = this.emuToPixels(bodyProps.rightMargin || 0);
-            const contentWidth = Math.max(0, widthPx - leftMargin - rightMargin);
+            const safeContentWidth = Math.max(0, contentWidthPx);
 
             let total = 0;
             for (const paragraph of textBody.paragraphs) {
                 const paraProps = this.parseParagraphProperties(paragraph, this.getCurrentShape());
-                const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, contentWidth, this.getCurrentShape());
-                const lineHeight = this.calculateStandardLineHeight(paraProps, wrappedLines);
+                const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, safeContentWidth, this.getCurrentShape());
                 const spaceBeforePx = this.emuToPixels(paraProps.spaceBefore || 0);
                 const spaceAfterPx = this.emuToPixels(paraProps.spaceAfter || 0);
-                total += spaceBeforePx + wrappedLines.length * lineHeight + spaceAfterPx;
+                // Per-line line heights so mixed-size paragraphs estimate correctly
+                let linesHeight = 0;
+                for (const line of wrappedLines) {
+                    linesHeight += this.calculateStandardLineHeight(paraProps, line);
+                }
+                total += spaceBeforePx + linesHeight + spaceAfterPx;
             }
-
-            // Add top/bottom margins
-            const topMargin = this.emuToPixels(bodyProps.topMargin || 0);
-            const bottomMargin = this.emuToPixels(bodyProps.bottomMargin || 0);
-            total += topMargin + bottomMargin;
 
             return Math.ceil(total);
         } catch (_e) {
@@ -6892,12 +6891,23 @@ class CDrawingDocument {
     }
 
     /**
-     * Estimate overall textbox height, including margins, from a shape and target width
+     * Estimate overall textbox height, including margins, from a shape and
+     * raw shape width (not inset-adjusted). Used for autofit height logic.
      */
     estimateTextBoxHeightPx(shape, widthPx) {
         const textBody = shape && shape.textBody;
         if (!textBody) {return 0;}
-        return this.estimateTextHeightPx(textBody, widthPx);
+
+        const bodyProps = textBody.bodyProperties || textBody.bodyPr || {};
+        const leftMargin = this.emuToPixels(bodyProps.leftMargin || 0);
+        const rightMargin = this.emuToPixels(bodyProps.rightMargin || 0);
+        const topMargin = this.emuToPixels(bodyProps.topMargin || 0);
+        const bottomMargin = this.emuToPixels(bodyProps.bottomMargin || 0);
+
+        const contentWidth = Math.max(0, widthPx - leftMargin - rightMargin);
+        const contentHeight = this.estimateTextHeightPx(textBody, contentWidth);
+
+        return Math.ceil(contentHeight + topMargin + bottomMargin);
     }
     /**
      * Render text body using standard patterns
@@ -6946,24 +6956,36 @@ class CDrawingDocument {
 
             // Calculate wrapped lines for this paragraph
             const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, textAreaWidth, currentShape);
-            const lineHeight = this.calculateStandardLineHeight(paraProps, wrappedLines);
+
+            // Per-line heights so mixed-size paragraphs render each line at its
+            // own correct height (PowerPoint/Google Slides behavior).
+            const lineHeights = wrappedLines.map(line => this.calculateStandardLineHeight(paraProps, line));
+            const linesTotalHeight = lineHeights.reduce((sum, h) => sum + h, 0);
+
+            // Representative line height used for percent-based paragraph
+            // spacing (spcBefPct/spcAftPct). Use the first line's height
+            // which matches prior behavior when all lines are uniform.
+            const representativeLineHeight = lineHeights.length > 0
+                ? lineHeights[0]
+                : this.calculateStandardLineHeight(paraProps, null);
+
             // Convert paragraph spacing (EMU) to canvas pixels; apply once per paragraph
             let spaceBeforePx = this.emuToPixels(paraProps.spaceBefore || 0) * scale;
             let spaceAfterPx = this.emuToPixels(paraProps.spaceAfter || 0) * scale;
             // Apply percentage-based spacing from master/layout styles (e.g. spcPct val="20000" = 20%)
             if (paraProps.spaceBeforePct && !paraProps.spaceBefore) {
-                spaceBeforePx = paraProps.spaceBeforePct * lineHeight;
+                spaceBeforePx = paraProps.spaceBeforePct * representativeLineHeight;
             }
             if (paraProps.spaceAfterPct && !paraProps.spaceAfter) {
-                spaceAfterPx = paraProps.spaceAfterPct * lineHeight;
+                spaceAfterPx = paraProps.spaceAfterPct * representativeLineHeight;
             }
-            const paragraphHeight = spaceBeforePx + wrappedLines.length * lineHeight + spaceAfterPx;
+            const paragraphHeight = spaceBeforePx + linesTotalHeight + spaceAfterPx;
 
             paragraphLayouts.push({
                 paragraph: paragraph,
                 paraProps: paraProps,
                 wrappedLines: wrappedLines,
-                lineHeight: lineHeight,
+                lineHeights: lineHeights,
                 spaceBefore: spaceBeforePx,
                 spaceAfter: spaceAfterPx,
                 height: paragraphHeight
@@ -7114,7 +7136,7 @@ class CDrawingDocument {
                 break;
             }
 
-            const { paraProps, wrappedLines, lineHeight, spaceBefore, spaceAfter } = layout;
+            const { paraProps, wrappedLines, lineHeights, spaceBefore, spaceAfter } = layout;
 
             // Apply spaceBefore once at the start of the paragraph
             currentY += spaceBefore || 0;
@@ -7148,7 +7170,8 @@ class CDrawingDocument {
             // Render each wrapped line
             for (let lineIndex = 0; lineIndex < wrappedLines.length; lineIndex++) {
                 const line = wrappedLines[lineIndex];
-                
+                const lineHeight = lineHeights[lineIndex];
+
                 // Remove line height check to allow text to render even if it extends beyond bounds
                 // This prevents text from disappearing when font sizes are larger
                 // if (currentY + lineHeight > maxY) break;
@@ -7176,10 +7199,12 @@ class CDrawingDocument {
                     lineStartX = textAreaX + textAreaWidth - line.width;
                 }
 
-                // Calculate proper baseline position for text using scaled font size
-                const baseFontSize = paraProps.fontSize || 12;
+                // Calculate proper baseline position based on this line's
+                // tallest run so large runs sit at the correct baseline even
+                // when the inherited paragraph font size is smaller.
                 const scaleFactor = this.getTextScaleFactor();
-                const scaledFontSize = baseFontSize * scaleFactor;
+                const lineEffectiveFontSizePt = this.getLineEffectiveFontSizePt(paraProps, line);
+                const scaledFontSize = lineEffectiveFontSizePt * scaleFactor;
                 const baselineY = currentY + scaledFontSize * 0.8;
 
                 // Render bullet for first line of paragraph
@@ -7409,8 +7434,33 @@ class CDrawingDocument {
 
                 const words = segment.split(/(\s+)/); // Keep whitespace
 
+                // Helper: trim trailing whitespace-only tokens from the current
+                // line before wrapping. This matches PowerPoint/CSS behavior
+                // where trailing whitespace at a wrap point is collapsed and
+                // does not count toward the line's visible width.
+                const trimTrailingWhitespace = () => {
+                    while (currentLine.runs.length > 0) {
+                        const last = currentLine.runs[currentLine.runs.length - 1];
+                        if (last && typeof last.text === 'string' && /^\s+$/.test(last.text)) {
+                            const wsWidth = this.measureRunText(last.text, last.runProps || runProps);
+                            currentLine.width = Math.max(0, currentLine.width - wsWidth);
+                            currentLine.runs.pop();
+                        } else {
+                            break;
+                        }
+                    }
+                };
+
                 for (const word of words) {
                     if (!word) {continue;}
+
+                    const isWhitespace = /^\s+$/.test(word);
+
+                    // Skip leading whitespace on an empty line — matches PPT
+                    // behavior where wrapped lines don't start with spaces.
+                    if (isWhitespace && currentLine.runs.length === 0) {
+                        continue;
+                    }
 
                     // Measure word width
                     const wordWidth = this.measureRunText(word, runProps);
@@ -7420,8 +7470,16 @@ class CDrawingDocument {
                         // Word fits — add to current line
                         currentLine.runs.push({ text: word, runProps: runProps });
                         currentLine.width += wordWidth;
+                    } else if (isWhitespace) {
+                        // Whitespace overflow shouldn't trigger a wrap on its
+                        // own; the next real word decides the wrap point.
+                        // Still append it so the character stream is preserved
+                        // for trimming later.
+                        currentLine.runs.push({ text: word, runProps: runProps });
+                        currentLine.width += wordWidth;
                     } else if (wordWidth <= maxWidth) {
                         // Word doesn't fit on current line but fits on its own — start new line
+                        trimTrailingWhitespace();
                         if (currentLine.runs.length > 0) {
                             lines.push(currentLine);
                         }
@@ -7431,6 +7489,7 @@ class CDrawingDocument {
                         };
                     } else {
                         // Word is longer than maxWidth (e.g. a URL with no spaces) — break at character level
+                        trimTrailingWhitespace();
                         if (currentLine.runs.length > 0) {
                             lines.push(currentLine);
                             currentLine = { runs: [], width: 0 };
@@ -8012,10 +8071,50 @@ class CDrawingDocument {
 
 
     /**
-     * Calculate line height with proper scaling
-     * Fixed: Apply proper scaling to match font scaling
+     * Determine the effective font size (in points) that drives the line height
+     * for a given scope. Accepts either a single wrapped line or an array of
+     * wrapped lines and returns the largest run font size in that scope.
+     *
+     * Mirrors PowerPoint/Google Slides: line height is driven by the tallest
+     * actual run on the line. The inherited paragraph font size is used only
+     * as a fallback when the scope contains no runs (e.g. an empty line or a
+     * null scope). This preserves PPT fidelity even when runs explicitly set
+     * a smaller size than the inherited paragraph default.
      */
-    calculateStandardLineHeight(paraProps, wrappedLines = null) {
+    getLineEffectiveFontSizePt(paraProps, scope = null) {
+        const inheritedPt = paraProps && paraProps.fontSize ? paraProps.fontSize : 12;
+        if (!scope) {
+            return inheritedPt;
+        }
+        const lines = Array.isArray(scope) ? scope : [scope];
+        let maxRunFontSizePt = 0;
+        for (const line of lines) {
+            if (!line || !Array.isArray(line.runs)) {continue;}
+            for (const runData of line.runs) {
+                if (runData && runData.runProps && runData.runProps.fontSize > 0) {
+                    maxRunFontSizePt = Math.max(maxRunFontSizePt, runData.runProps.fontSize);
+                }
+            }
+        }
+        return maxRunFontSizePt > 0 ? maxRunFontSizePt : inheritedPt;
+    }
+
+    /**
+     * Calculate line height with proper scaling.
+     *
+     * PowerPoint / Google Slides / CSS line-height:normal all use a natural
+     * "single" line spacing factor of ~1.2x the font size (LibreOffice calls
+     * this ImplCalculateFontIndependentLineSpacing). `paraProps.lineHeight`
+     * (from `lnSpc spcPct`) is then applied multiplicatively on top of that
+     * natural single-line spacing. `paraProps.lineHeightPoints` (from
+     * `lnSpc spcPts`) is an absolute override.
+     *
+     * The scope can be a single wrapped line (preferred — gives per-line
+     * heights that match PPT for paragraphs with mixed run sizes) or an array
+     * of wrapped lines (paragraph-wide). When omitted, falls back to the
+     * inherited paragraph font size.
+     */
+    calculateStandardLineHeight(paraProps, scope = null) {
         // If absolute line spacing in points is provided, use it exactly
         if (paraProps.lineHeightPoints) {
             // Convert points to pixels: pts * (96/72) gives base pixels, then scale for canvas
@@ -8025,36 +8124,19 @@ class CDrawingDocument {
             return paraProps.lineHeightPoints * pixelsPerPoint * csScale;
         }
 
-        let baseFontSizePt = paraProps.fontSize || 12; // points
-
-        // When runs use a smaller font than the inherited paragraph default (e.g., 12pt runs
-        // inside an 18pt otherStyle paragraph), PowerPoint/LibreOffice both compute "single"
-        // line spacing as actualRunFontSize × 1.2 (the "font-independent" factor per
-        // LibreOffice ImplCalculateFontIndependentLineSpacing and CSS line-height:normal).
-        // Only apply when runs are SMALLER than inherited — when runs are larger (e.g., 30pt
-        // title with 18pt inherited), keep the inherited value to preserve correct rendering.
-        if (wrappedLines && wrappedLines.length > 0) {
-            let maxRunFontSize = 0;
-            for (const line of wrappedLines) {
-                for (const runData of (line.runs || [])) {
-                    if (runData.runProps && runData.runProps.fontSize > 0) {
-                        maxRunFontSize = Math.max(maxRunFontSize, runData.runProps.fontSize);
-                    }
-                }
-            }
-            if (maxRunFontSize > 0 && maxRunFontSize < baseFontSizePt) {
-                baseFontSizePt = maxRunFontSize * 1.2;
-            }
-        }
-
+        const effectiveFontSizePt = this.getLineEffectiveFontSizePt(paraProps, scope);
         const scaleFactor = this.getTextScaleFactor();
-        const scaledFontSizePx = baseFontSizePt * scaleFactor; // px
+        const scaledFontSizePx = effectiveFontSizePt * scaleFactor;
 
-        // Otherwise, use percent of font size (default 100%)
+        // Natural "single" line spacing (matches PPT default, Google Slides,
+        // CSS line-height:normal, LibreOffice font-independent line spacing)
+        const SINGLE_LINE_SPACING_FACTOR = 1.2;
+        const naturalLineHeightPx = scaledFontSizePx * SINGLE_LINE_SPACING_FACTOR;
+
+        // Apply paragraph line-spacing percent (default 100% = "Single")
         const lineHeightPercent = paraProps.lineHeight || 100;
-        const lineHeight = (scaledFontSizePx * lineHeightPercent) / 100;
+        const lineHeight = (naturalLineHeightPx * lineHeightPercent) / 100;
 
-        // Return line height only; paragraph spacing is applied once per paragraph
         return lineHeight;
     }
 

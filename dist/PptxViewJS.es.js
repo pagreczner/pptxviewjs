@@ -1,5 +1,5 @@
 /**
- * @petepetepete/pptxviewjs v1.2.0
+ * @petepetepete/pptxviewjs v1.3.0
  * JavaScript library for viewing PowerPoint presentations in web browsers
  * 
  * Copyright 2026 gptsci.com
@@ -25024,32 +25024,38 @@ function requireGraphicsAdapter () {
 	    }
 
 	    /**
-	     * Estimate content height for a text body in pixels given a width
+	     * Estimate content-area text height in pixels for a text body, given the
+	     * already-inset-adjusted content width (no margin subtraction here).
+	     *
+	     * Callers that start from a raw shape width should subtract insets
+	     * themselves (see `estimateTextBoxHeightPx`).
 	     */
-	    estimateTextHeightPx(textBody, widthPx) {
+	    estimateTextHeightPx(textBody, contentWidthPx) {
 	        try {
 	            if (!textBody || !textBody.paragraphs || textBody.paragraphs.length === 0) {return 0;}
 
-	            // Use body properties margins if present
-	            const bodyProps = textBody.bodyProperties || textBody.bodyPr || {};
-	            const leftMargin = this.emuToPixels(bodyProps.leftMargin || 0);
-	            const rightMargin = this.emuToPixels(bodyProps.rightMargin || 0);
-	            const contentWidth = Math.max(0, widthPx - leftMargin - rightMargin);
+	            const safeContentWidth = Math.max(0, contentWidthPx);
+
+	            // Match render-path wrap width semantics: carve out paragraph left
+	            // indent (marL) so estimates don't under-count the line count for
+	            // bulleted / indented paragraphs.
+	            const estScale = this.coordinateSystem?.scale || 1;
 
 	            let total = 0;
 	            for (const paragraph of textBody.paragraphs) {
 	                const paraProps = this.parseParagraphProperties(paragraph, this.getCurrentShape());
-	                const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, contentWidth, this.getCurrentShape());
-	                const lineHeight = this.calculateStandardLineHeight(paraProps, wrappedLines);
+	                const indentLeftPx = Math.max(0, this.emuToPixels(paraProps.indent?.left || 0) * estScale);
+	                const effectiveMaxWidth = Math.max(0, safeContentWidth - indentLeftPx);
+	                const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, effectiveMaxWidth, this.getCurrentShape());
 	                const spaceBeforePx = this.emuToPixels(paraProps.spaceBefore || 0);
 	                const spaceAfterPx = this.emuToPixels(paraProps.spaceAfter || 0);
-	                total += spaceBeforePx + wrappedLines.length * lineHeight + spaceAfterPx;
+	                // Per-line line heights so mixed-size paragraphs estimate correctly
+	                let linesHeight = 0;
+	                for (const line of wrappedLines) {
+	                    linesHeight += this.calculateStandardLineHeight(paraProps, line);
+	                }
+	                total += spaceBeforePx + linesHeight + spaceAfterPx;
 	            }
-
-	            // Add top/bottom margins
-	            const topMargin = this.emuToPixels(bodyProps.topMargin || 0);
-	            const bottomMargin = this.emuToPixels(bodyProps.bottomMargin || 0);
-	            total += topMargin + bottomMargin;
 
 	            return Math.ceil(total);
 	        } catch (_e) {
@@ -25058,12 +25064,23 @@ function requireGraphicsAdapter () {
 	    }
 
 	    /**
-	     * Estimate overall textbox height, including margins, from a shape and target width
+	     * Estimate overall textbox height, including margins, from a shape and
+	     * raw shape width (not inset-adjusted). Used for autofit height logic.
 	     */
 	    estimateTextBoxHeightPx(shape, widthPx) {
 	        const textBody = shape && shape.textBody;
 	        if (!textBody) {return 0;}
-	        return this.estimateTextHeightPx(textBody, widthPx);
+
+	        const bodyProps = textBody.bodyProperties || textBody.bodyPr || {};
+	        const leftMargin = this.emuToPixels(bodyProps.leftMargin || 0);
+	        const rightMargin = this.emuToPixels(bodyProps.rightMargin || 0);
+	        const topMargin = this.emuToPixels(bodyProps.topMargin || 0);
+	        const bottomMargin = this.emuToPixels(bodyProps.bottomMargin || 0);
+
+	        const contentWidth = Math.max(0, widthPx - leftMargin - rightMargin);
+	        const contentHeight = this.estimateTextHeightPx(textBody, contentWidth);
+
+	        return Math.ceil(contentHeight + topMargin + bottomMargin);
 	    }
 	    /**
 	     * Render text body using standard patterns
@@ -25110,26 +25127,44 @@ function requireGraphicsAdapter () {
 	            const currentShape = this.getCurrentShape();
 	            const paraProps = this.parseParagraphProperties(paragraph, currentShape);
 
-	            // Calculate wrapped lines for this paragraph
-	            const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, textAreaWidth, currentShape);
-	            const lineHeight = this.calculateStandardLineHeight(paraProps, wrappedLines);
+	            // Calculate wrapped lines for this paragraph. The wrap width must
+	            // account for any paragraph left indent (marL) because the render
+	            // loop below starts text at `textAreaX + indentLeft`. Using the
+	            // full textAreaWidth for wrap would allow lines to extend past the
+	            // right edge of the text box.
+	            const indentLeftPx = Math.max(0, this.emuToPixels(paraProps.indent?.left || 0) * scale);
+	            const effectiveMaxWidth = Math.max(0, textAreaWidth - indentLeftPx);
+	            const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, effectiveMaxWidth, currentShape);
+
+	            // Per-line heights so mixed-size paragraphs render each line at its
+	            // own correct height (PowerPoint/Google Slides behavior).
+	            const lineHeights = wrappedLines.map(line => this.calculateStandardLineHeight(paraProps, line));
+	            const linesTotalHeight = lineHeights.reduce((sum, h) => sum + h, 0);
+
+	            // Representative line height used for percent-based paragraph
+	            // spacing (spcBefPct/spcAftPct). Use the first line's height
+	            // which matches prior behavior when all lines are uniform.
+	            const representativeLineHeight = lineHeights.length > 0
+	                ? lineHeights[0]
+	                : this.calculateStandardLineHeight(paraProps, null);
+
 	            // Convert paragraph spacing (EMU) to canvas pixels; apply once per paragraph
 	            let spaceBeforePx = this.emuToPixels(paraProps.spaceBefore || 0) * scale;
 	            let spaceAfterPx = this.emuToPixels(paraProps.spaceAfter || 0) * scale;
 	            // Apply percentage-based spacing from master/layout styles (e.g. spcPct val="20000" = 20%)
 	            if (paraProps.spaceBeforePct && !paraProps.spaceBefore) {
-	                spaceBeforePx = paraProps.spaceBeforePct * lineHeight;
+	                spaceBeforePx = paraProps.spaceBeforePct * representativeLineHeight;
 	            }
 	            if (paraProps.spaceAfterPct && !paraProps.spaceAfter) {
-	                spaceAfterPx = paraProps.spaceAfterPct * lineHeight;
+	                spaceAfterPx = paraProps.spaceAfterPct * representativeLineHeight;
 	            }
-	            const paragraphHeight = spaceBeforePx + wrappedLines.length * lineHeight + spaceAfterPx;
+	            const paragraphHeight = spaceBeforePx + linesTotalHeight + spaceAfterPx;
 
 	            paragraphLayouts.push({
 	                paragraph: paragraph,
 	                paraProps: paraProps,
 	                wrappedLines: wrappedLines,
-	                lineHeight: lineHeight,
+	                lineHeights: lineHeights,
 	                spaceBefore: spaceBeforePx,
 	                spaceAfter: spaceAfterPx,
 	                height: paragraphHeight
@@ -25280,7 +25315,7 @@ function requireGraphicsAdapter () {
 	                break;
 	            }
 
-	            const { paraProps, wrappedLines, lineHeight, spaceBefore, spaceAfter } = layout;
+	            const { paraProps, wrappedLines, lineHeights, spaceBefore, spaceAfter } = layout;
 
 	            // Apply spaceBefore once at the start of the paragraph
 	            currentY += spaceBefore || 0;
@@ -25314,7 +25349,8 @@ function requireGraphicsAdapter () {
 	            // Render each wrapped line
 	            for (let lineIndex = 0; lineIndex < wrappedLines.length; lineIndex++) {
 	                const line = wrappedLines[lineIndex];
-	                
+	                const lineHeight = lineHeights[lineIndex];
+
 	                // Remove line height check to allow text to render even if it extends beyond bounds
 	                // This prevents text from disappearing when font sizes are larger
 	                // if (currentY + lineHeight > maxY) break;
@@ -25342,10 +25378,12 @@ function requireGraphicsAdapter () {
 	                    lineStartX = textAreaX + textAreaWidth - line.width;
 	                }
 
-	                // Calculate proper baseline position for text using scaled font size
-	                const baseFontSize = paraProps.fontSize || 12;
+	                // Calculate proper baseline position based on this line's
+	                // tallest run so large runs sit at the correct baseline even
+	                // when the inherited paragraph font size is smaller.
 	                const scaleFactor = this.getTextScaleFactor();
-	                const scaledFontSize = baseFontSize * scaleFactor;
+	                const lineEffectiveFontSizePt = this.getLineEffectiveFontSizePt(paraProps, line);
+	                const scaledFontSize = lineEffectiveFontSizePt * scaleFactor;
 	                const baselineY = currentY + scaledFontSize * 0.8;
 
 	                // Render bullet for first line of paragraph
@@ -25531,6 +25569,37 @@ function requireGraphicsAdapter () {
 	        let currentLine = { runs: [], width: 0 };
 	        let isFirstRun = true;
 
+	        // Honor <a:bodyPr wrap="none"> on the containing shape: PPT does not
+	        // auto-wrap these, so we produce one line per explicit newline and
+	        // accept potential overflow past the text body (matching PPT).
+	        const wrapDisabled = currentShape
+	            && currentShape.textBody
+	            && currentShape.textBody.bodyProperties
+	            && currentShape.textBody.bodyProperties.wrap === false;
+
+	        if (wrapDisabled) {
+	            for (const run of paragraph.runs) {
+	                if (!run || !run.text) {continue;}
+	                const runProps = this.parseRunProperties(run, paraProps, currentShape);
+	                const segments = String(run.text).split('\n');
+	                for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+	                    if (segIdx > 0) {
+	                        lines.push(currentLine);
+	                        currentLine = { runs: [], width: 0 };
+	                    }
+	                    const segment = segments[segIdx];
+	                    if (!segment) {continue;}
+	                    const segWidth = this.measureRunText(segment, runProps);
+	                    currentLine.runs.push({ text: segment, runProps });
+	                    currentLine.width += segWidth;
+	                }
+	            }
+	            if (currentLine.runs.length > 0 || lines.length === 0) {
+	                lines.push(currentLine);
+	            }
+	            return lines;
+	        }
+
 	        for (const run of paragraph.runs) {
 	            if (!run.text) {continue;}
 
@@ -25575,8 +25644,33 @@ function requireGraphicsAdapter () {
 
 	                const words = segment.split(/(\s+)/); // Keep whitespace
 
+	                // Helper: trim trailing whitespace-only tokens from the current
+	                // line before wrapping. This matches PowerPoint/CSS behavior
+	                // where trailing whitespace at a wrap point is collapsed and
+	                // does not count toward the line's visible width.
+	                const trimTrailingWhitespace = () => {
+	                    while (currentLine.runs.length > 0) {
+	                        const last = currentLine.runs[currentLine.runs.length - 1];
+	                        if (last && typeof last.text === 'string' && /^\s+$/.test(last.text)) {
+	                            const wsWidth = this.measureRunText(last.text, last.runProps || runProps);
+	                            currentLine.width = Math.max(0, currentLine.width - wsWidth);
+	                            currentLine.runs.pop();
+	                        } else {
+	                            break;
+	                        }
+	                    }
+	                };
+
 	                for (const word of words) {
 	                    if (!word) {continue;}
+
+	                    const isWhitespace = /^\s+$/.test(word);
+
+	                    // Skip leading whitespace on an empty line — matches PPT
+	                    // behavior where wrapped lines don't start with spaces.
+	                    if (isWhitespace && currentLine.runs.length === 0) {
+	                        continue;
+	                    }
 
 	                    // Measure word width
 	                    const wordWidth = this.measureRunText(word, runProps);
@@ -25586,8 +25680,16 @@ function requireGraphicsAdapter () {
 	                        // Word fits — add to current line
 	                        currentLine.runs.push({ text: word, runProps: runProps });
 	                        currentLine.width += wordWidth;
+	                    } else if (isWhitespace) {
+	                        // Whitespace overflow shouldn't trigger a wrap on its
+	                        // own; the next real word decides the wrap point.
+	                        // Still append it so the character stream is preserved
+	                        // for trimming later.
+	                        currentLine.runs.push({ text: word, runProps: runProps });
+	                        currentLine.width += wordWidth;
 	                    } else if (wordWidth <= maxWidth) {
 	                        // Word doesn't fit on current line but fits on its own — start new line
+	                        trimTrailingWhitespace();
 	                        if (currentLine.runs.length > 0) {
 	                            lines.push(currentLine);
 	                        }
@@ -25597,6 +25699,7 @@ function requireGraphicsAdapter () {
 	                        };
 	                    } else {
 	                        // Word is longer than maxWidth (e.g. a URL with no spaces) — break at character level
+	                        trimTrailingWhitespace();
 	                        if (currentLine.runs.length > 0) {
 	                            lines.push(currentLine);
 	                            currentLine = { runs: [], width: 0 };
@@ -25654,10 +25757,19 @@ function requireGraphicsAdapter () {
 	        const fontStyle = runProps.italic ? 'italic' : 'normal';
 	        const fontWeight = runProps.bold ? 'bold' : 'normal';
 	        const fontFamily = runProps.fontFamily || 'Arial';
-	        
+
+	        // Prepend the library-scoped Carlito (metric-compatible Calibri
+	        // substitute) for Calibri runs. Registered in `document.fonts` under
+	        // the scoped name `PptxViewJS-Calibri` to avoid colliding with any
+	        // `font-family: Calibri` the host app uses elsewhere.
+	        const isCalibri = typeof fontFamily === 'string' && fontFamily.trim().toLowerCase() === 'calibri';
+	        const primaryFont = isCalibri
+	            ? `"PptxViewJS-Calibri", "${fontFamily}"`
+	            : `"${fontFamily}"`;
+
 	        // Include emoji-capable fonts in font stack for Unicode character support
 	        // Use system fonts that are more likely to be available
-	        const fontStack = `"${fontFamily}", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif`;
+	        const fontStack = `${primaryFont}, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif`;
 
 	        ctx.font = `${fontStyle} ${fontWeight} ${scaledFontSize}px ${fontStack}`;
 	        ctx.fillStyle = this.graphics.colorToRgb(runProps.color);
@@ -26178,10 +26290,50 @@ function requireGraphicsAdapter () {
 
 
 	    /**
-	     * Calculate line height with proper scaling
-	     * Fixed: Apply proper scaling to match font scaling
+	     * Determine the effective font size (in points) that drives the line height
+	     * for a given scope. Accepts either a single wrapped line or an array of
+	     * wrapped lines and returns the largest run font size in that scope.
+	     *
+	     * Mirrors PowerPoint/Google Slides: line height is driven by the tallest
+	     * actual run on the line. The inherited paragraph font size is used only
+	     * as a fallback when the scope contains no runs (e.g. an empty line or a
+	     * null scope). This preserves PPT fidelity even when runs explicitly set
+	     * a smaller size than the inherited paragraph default.
 	     */
-	    calculateStandardLineHeight(paraProps, wrappedLines = null) {
+	    getLineEffectiveFontSizePt(paraProps, scope = null) {
+	        const inheritedPt = paraProps && paraProps.fontSize ? paraProps.fontSize : 12;
+	        if (!scope) {
+	            return inheritedPt;
+	        }
+	        const lines = Array.isArray(scope) ? scope : [scope];
+	        let maxRunFontSizePt = 0;
+	        for (const line of lines) {
+	            if (!line || !Array.isArray(line.runs)) {continue;}
+	            for (const runData of line.runs) {
+	                if (runData && runData.runProps && runData.runProps.fontSize > 0) {
+	                    maxRunFontSizePt = Math.max(maxRunFontSizePt, runData.runProps.fontSize);
+	                }
+	            }
+	        }
+	        return maxRunFontSizePt > 0 ? maxRunFontSizePt : inheritedPt;
+	    }
+
+	    /**
+	     * Calculate line height with proper scaling.
+	     *
+	     * PowerPoint / Google Slides / CSS line-height:normal all use a natural
+	     * "single" line spacing factor of ~1.2x the font size (LibreOffice calls
+	     * this ImplCalculateFontIndependentLineSpacing). `paraProps.lineHeight`
+	     * (from `lnSpc spcPct`) is then applied multiplicatively on top of that
+	     * natural single-line spacing. `paraProps.lineHeightPoints` (from
+	     * `lnSpc spcPts`) is an absolute override.
+	     *
+	     * The scope can be a single wrapped line (preferred — gives per-line
+	     * heights that match PPT for paragraphs with mixed run sizes) or an array
+	     * of wrapped lines (paragraph-wide). When omitted, falls back to the
+	     * inherited paragraph font size.
+	     */
+	    calculateStandardLineHeight(paraProps, scope = null) {
 	        // If absolute line spacing in points is provided, use it exactly
 	        if (paraProps.lineHeightPoints) {
 	            // Convert points to pixels: pts * (96/72) gives base pixels, then scale for canvas
@@ -26191,36 +26343,19 @@ function requireGraphicsAdapter () {
 	            return paraProps.lineHeightPoints * pixelsPerPoint * csScale;
 	        }
 
-	        let baseFontSizePt = paraProps.fontSize || 12; // points
-
-	        // When runs use a smaller font than the inherited paragraph default (e.g., 12pt runs
-	        // inside an 18pt otherStyle paragraph), PowerPoint/LibreOffice both compute "single"
-	        // line spacing as actualRunFontSize × 1.2 (the "font-independent" factor per
-	        // LibreOffice ImplCalculateFontIndependentLineSpacing and CSS line-height:normal).
-	        // Only apply when runs are SMALLER than inherited — when runs are larger (e.g., 30pt
-	        // title with 18pt inherited), keep the inherited value to preserve correct rendering.
-	        if (wrappedLines && wrappedLines.length > 0) {
-	            let maxRunFontSize = 0;
-	            for (const line of wrappedLines) {
-	                for (const runData of (line.runs || [])) {
-	                    if (runData.runProps && runData.runProps.fontSize > 0) {
-	                        maxRunFontSize = Math.max(maxRunFontSize, runData.runProps.fontSize);
-	                    }
-	                }
-	            }
-	            if (maxRunFontSize > 0 && maxRunFontSize < baseFontSizePt) {
-	                baseFontSizePt = maxRunFontSize * 1.2;
-	            }
-	        }
-
+	        const effectiveFontSizePt = this.getLineEffectiveFontSizePt(paraProps, scope);
 	        const scaleFactor = this.getTextScaleFactor();
-	        const scaledFontSizePx = baseFontSizePt * scaleFactor; // px
+	        const scaledFontSizePx = effectiveFontSizePt * scaleFactor;
 
-	        // Otherwise, use percent of font size (default 100%)
+	        // Natural "single" line spacing (matches PPT default, Google Slides,
+	        // CSS line-height:normal, LibreOffice font-independent line spacing)
+	        const SINGLE_LINE_SPACING_FACTOR = 1.2;
+	        const naturalLineHeightPx = scaledFontSizePx * SINGLE_LINE_SPACING_FACTOR;
+
+	        // Apply paragraph line-spacing percent (default 100% = "Single")
 	        const lineHeightPercent = paraProps.lineHeight || 100;
-	        const lineHeight = (scaledFontSizePx * lineHeightPercent) / 100;
+	        const lineHeight = (naturalLineHeightPx * lineHeightPercent) / 100;
 
-	        // Return line height only; paragraph spacing is applied once per paragraph
 	        return lineHeight;
 	    }
 
@@ -26561,6 +26696,20 @@ function requireGraphicsAdapter () {
 	            }
 	        }
 
+	        // Apply normAutofit lnSpcReduction (if present on the shape's bodyPr).
+	        // PowerPoint reduces effective line spacing by this factor when
+	        // shrink-to-fit is enabled. Apply to both percent and absolute forms.
+	        const autofit = shape && shape.textBody && shape.textBody.bodyProperties && shape.textBody.bodyProperties.autofit;
+	        if (autofit && autofit.type === 'normal' && typeof autofit.lnSpcReduction === 'number' && autofit.lnSpcReduction > 0 && autofit.lnSpcReduction < 1) {
+	            const factor = 1 - autofit.lnSpcReduction;
+	            if (typeof props.lineHeight === 'number') {
+	                props.lineHeight = props.lineHeight * factor;
+	            }
+	            if (typeof props.lineHeightPoints === 'number') {
+	                props.lineHeightPoints = props.lineHeightPoints * factor;
+	            }
+	        }
+
 	        return props;
 	    }
 
@@ -26662,6 +26811,16 @@ function requireGraphicsAdapter () {
 	            // Text effects (shadow, glow)
 	            if (rProps.effectLst) {
 	                props.effectLst = rProps.effectLst;
+	            }
+	        }
+
+	        // Apply normAutofit fontScale (if present on the shape's bodyPr) as a
+	        // final multiplier on the resolved font size. PowerPoint uses this to
+	        // shrink text to fit when "Resize text on overflow" is enabled.
+	        const autofit = shape && shape.textBody && shape.textBody.bodyProperties && shape.textBody.bodyProperties.autofit;
+	        if (autofit && autofit.type === 'normal' && typeof autofit.fontScale === 'number' && autofit.fontScale > 0 && autofit.fontScale < 1) {
+	            if (typeof props.fontSize === 'number' && props.fontSize > 0) {
+	                props.fontSize = props.fontSize * autofit.fontScale;
 	            }
 	        }
 
@@ -38447,6 +38606,26 @@ class PPTXSlideRenderer {
                 props.rightMargin = parseInt(bodyPrElement.getAttribute('rIns')) || 45720;
                 props.topMargin = parseInt(bodyPrElement.getAttribute('tIns')) || 22860; // Default ~0.025 inch (0.625mm) 
                 props.bottomMargin = parseInt(bodyPrElement.getAttribute('bIns')) || 22860;
+
+                // Autofit: PPT supports <a:normAutofit>, <a:noAutofit/>, and <a:spAutoFit/>.
+                // Only normAutofit carries numeric attributes (fontScale, lnSpcReduction).
+                // Values are in thousandths of a percent; convert to ratios.
+                const normAutofitEl = bodyPrElement.querySelector('normAutofit, a\\:normAutofit');
+                const noAutofitEl = bodyPrElement.querySelector('noAutofit, a\\:noAutofit');
+                const spAutoFitEl = bodyPrElement.querySelector('spAutoFit, a\\:spAutoFit');
+                if (normAutofitEl) {
+                    const fontScaleRaw = parseInt(normAutofitEl.getAttribute('fontScale'), 10);
+                    const lnSpcReductionRaw = parseInt(normAutofitEl.getAttribute('lnSpcReduction'), 10);
+                    props.autofit = {
+                        type: 'normal',
+                        fontScale: Number.isFinite(fontScaleRaw) ? fontScaleRaw / 100000 : 1,
+                        lnSpcReduction: Number.isFinite(lnSpcReductionRaw) ? lnSpcReductionRaw / 100000 : 0
+                    };
+                } else if (noAutofitEl) {
+                    props.autofit = { type: 'none', fontScale: 1, lnSpcReduction: 0 };
+                } else if (spAutoFitEl) {
+                    props.autofit = { type: 'shape', fontScale: 1, lnSpcReduction: 0 };
+                }
             }
         } catch (_error) {
 				// Error ignored
@@ -45901,6 +46080,141 @@ class PPTXProcessor {
 })();
 
 /**
+ * PptxViewJS font loader.
+ *
+ * Registers Carlito (an SIL-OFL metric-compatible replacement for Calibri)
+ * under the library-scoped font-family name "PptxViewJS-Calibri". Rendering
+ * code prepends this scoped name ahead of "Calibri" in the canvas font stack,
+ * so measurements and glyph widths align with PowerPoint/Google Slides while
+ * the host application's other `font-family: Calibri` usages are unaffected.
+ *
+ * The loader is idempotent: only the first call performs network work; all
+ * later calls return the same cached Promise.
+ *
+ * Default source: the woff2 files bundled alongside this package, served from
+ * jsDelivr pinned to the installed package version. This gives us a reliable
+ * zero-config default across bundlers (Vite, Webpack, Next.js, etc.) where
+ * runtime `import.meta.url`-based resolution cannot reliably reach the
+ * package's `fonts/` directory. Consumers can override with the `fontBaseUrl`
+ * option to point at their own hosted copy (for offline / CSP-restricted /
+ * airgapped deployments) or disable substitution entirely.
+ */
+
+// Package version used to pin the jsDelivr CDN URL. Kept in sync with
+// package.json at release time. See MAINTAINERS.md for the release checklist.
+const PPTXVIEWJS_PKG_VERSION = '1.3.0';
+
+// Default base URL served from jsDelivr, pinned to the package version so a
+// later release cannot change font assets under an older installed client.
+// Consumers that cannot reach jsDelivr (strict CSP, offline, airgapped) should
+// pass a local `fontBaseUrl` or set `substituteCalibri: false`.
+const DEFAULT_JSDELIVR_BASE_URL =
+  `https://cdn.jsdelivr.net/npm/@petepetepete/pptxviewjs@${PPTXVIEWJS_PKG_VERSION}/fonts/`;
+
+// Google Fonts subset unicode-ranges for Carlito. These match the fragments
+// published as separate woff2 files by Google and allow the browser to pick
+// the correct subset based on the characters actually rendered.
+const CARLITO_LATIN_RANGE =
+  'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, ' +
+  'U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, ' +
+  'U+2212, U+2215, U+FEFF, U+FFFD';
+
+const CARLITO_LATIN_EXT_RANGE =
+  'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, ' +
+  'U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, ' +
+  'U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF';
+
+const FONT_DEFS = [
+  { weight: '400', style: 'normal', file: 'Carlito-Regular-latin.woff2', unicodeRange: CARLITO_LATIN_RANGE },
+  { weight: '400', style: 'normal', file: 'Carlito-Regular-latin-ext.woff2', unicodeRange: CARLITO_LATIN_EXT_RANGE },
+  { weight: '700', style: 'normal', file: 'Carlito-Bold-latin.woff2', unicodeRange: CARLITO_LATIN_RANGE },
+  { weight: '700', style: 'normal', file: 'Carlito-Bold-latin-ext.woff2', unicodeRange: CARLITO_LATIN_EXT_RANGE }
+];
+
+const PPTX_CALIBRI_FAMILY = 'PptxViewJS-Calibri';
+
+let loadPromise = null;
+
+/**
+ * Register Carlito with the document under the scoped family name so canvas
+ * measurement and rendering both use Calibri-compatible metrics.
+ *
+ * Safe to call multiple times; subsequent calls resolve immediately.
+ *
+ * @param {{ fontBaseUrl?: string }} [options] Optional base URL pointing at a
+ *   `fonts/` directory containing the Carlito woff2 files. Accepts absolute
+ *   URLs (`https://my.cdn/fonts/`) or site-relative paths (`/fonts/`). When
+ *   omitted, defaults to the jsDelivr CDN URL pinned to this package version.
+ * @returns {Promise<void>} Resolves after font registration attempts complete.
+ *   Never rejects: on failure the viewer falls back to the native font stack.
+ */
+function ensurePptxViewFonts(options = {}) {
+  if (loadPromise) {
+    return loadPromise;
+  }
+
+  if (
+    typeof document === 'undefined' ||
+    typeof FontFace === 'undefined' ||
+    !document.fonts ||
+    typeof document.fonts.add !== 'function'
+  ) {
+    loadPromise = Promise.resolve();
+    return loadPromise;
+  }
+
+  const providedBase = typeof options.fontBaseUrl === 'string' && options.fontBaseUrl.length > 0
+    ? options.fontBaseUrl.replace(/\/$/, '') + '/'
+    : null;
+  const rawBaseUrl = providedBase || DEFAULT_JSDELIVR_BASE_URL;
+
+  // `new URL(relative, base)` requires `base` to be an absolute URL. For
+  // site-relative path overrides (e.g. "/fonts/"), resolve against
+  // `document.baseURI` first. The jsDelivr default is already absolute.
+  let baseUrl;
+  try {
+    baseUrl = new URL(rawBaseUrl, document.baseURI).href;
+  } catch (_err) {
+    loadPromise = Promise.resolve();
+    return loadPromise;
+  }
+
+  loadPromise = Promise.all(
+    FONT_DEFS.map(async def => {
+      try {
+        const url = new URL(def.file, baseUrl).href;
+        const face = new FontFace(
+          PPTX_CALIBRI_FAMILY,
+          `url(${url}) format('woff2')`,
+          {
+            weight: def.weight,
+            style: def.style,
+            display: 'block',
+            unicodeRange: def.unicodeRange
+          }
+        );
+        const loaded = await face.load();
+        document.fonts.add(loaded);
+      } catch (_err) {
+        // Silently ignore; viewer falls back to the native font stack.
+      }
+    })
+  ).then(() => undefined);
+
+  return loadPromise;
+}
+
+/**
+ * For tests: reset the memoized load promise so the next call re-runs.
+ * Not part of the public API.
+ *
+ * @private
+ */
+function _resetPptxViewFontsForTests() {
+  loadPromise = null;
+}
+
+/**
  * PptxViewJS Library
  * Main entry point for the PowerPoint viewer library
  * 
@@ -45908,8 +46222,9 @@ class PPTXProcessor {
  * Licensed under the MIT License
  */
 
-// Avoid importing package.json to maintain compatibility with parsers/linters
-let LIB_VERSION = '1.1.8';
+// Avoid importing package.json to maintain compatibility with parsers/linters.
+// Keep this in sync with package.json at release time (see MAINTAINERS.md).
+let LIB_VERSION = '1.3.0';
 try {
     if (typeof process !== 'undefined' && process.env && process.env.npm_package_version) {
         LIB_VERSION = process.env.npm_package_version;
@@ -46024,7 +46339,14 @@ class PPTXViewer {
             // New: simplify integration by auto-exposing globals for chart relationship resolution
             autoExposeGlobals: userOptions.autoExposeGlobals ?? true,
             // New: schedule one delayed re-render to catch async chart parsing
-            autoChartRerenderDelayMs: userOptions.autoChartRerenderDelayMs ?? 200
+            autoChartRerenderDelayMs: userOptions.autoChartRerenderDelayMs ?? 200,
+            // New: opt-in/out of bundled Carlito metric-compatible Calibri substitute.
+            // Defaults to true for correct Calibri measurement widths on systems
+            // without Calibri installed. Opt out with `false`.
+            substituteCalibri: userOptions.substituteCalibri ?? true,
+            // New: override base URL for the bundled `fonts/` directory. Useful
+            // for unusual bundling setups (Electron packed assets, custom CDNs).
+            fontBaseUrl: userOptions.fontBaseUrl ?? null
         };
         Object.assign(this.options, userOptions);
 
@@ -46036,6 +46358,17 @@ class PPTXViewer {
         this.eventListeners = {};
         this._initPromise = null;
         this._scheduledPostLoadRerender = false;
+
+        // Kick off font substitution in the background so the first render has
+        // Calibri-compatible metrics. render() awaits this promise before
+        // drawing to avoid a flash of wrong-metric fallback glyphs.
+        if (this.options.substituteCalibri !== false) {
+            this._fontsReadyPromise = ensurePptxViewFonts({
+                fontBaseUrl: this.options.fontBaseUrl || undefined
+            });
+        } else {
+            this._fontsReadyPromise = Promise.resolve();
+        }
     }
 
     async _initializeProcessor() {
@@ -46144,7 +46477,12 @@ class PPTXViewer {
         const targetCanvas = canvas || this.options.canvas;
         if (!targetCanvas) {throw new Error('Canvas element required. Provide canvas parameter or set in constructor.');}
         const slideIndex = options.slideIndex !== undefined ? options.slideIndex : this.currentSlideIndex;
-        if (slideIndex < 0 || slideIndex >= this.slideCount) {throw new Error(`Invalid slide index: ${slideIndex}.`);}        
+        if (slideIndex < 0 || slideIndex >= this.slideCount) {throw new Error(`Invalid slide index: ${slideIndex}.`);}
+        // Ensure Carlito (Calibri metric substitute) is loaded before the first
+        // render so initial measurement widths match PowerPoint/Google Slides.
+        if (this._fontsReadyPromise) {
+            try { await this._fontsReadyPromise; } catch(_e) {}
+        }
         try {
             this.emit('renderStart', slideIndex);
             await this.processor.renderSlide(targetCanvas, slideIndex, options);

@@ -27,11 +27,13 @@ import './processors/svg-renderer.js';
 import './processors/theme-processor.js';
 import PPTXSlideRendererClass from './processors/slide-renderer.js';
 import PPTXProcessorClass from './processors/PPTXProcessor.js';
+import { ensurePptxViewFonts } from './utils/font-loader.js';
 // Bundle externals for UMD consumers
 import ChartModule from 'chart.js/auto';
 import JSZipModule from 'jszip';
-// Avoid importing package.json to maintain compatibility with parsers/linters
-let LIB_VERSION = '1.1.8';
+// Avoid importing package.json to maintain compatibility with parsers/linters.
+// Keep this in sync with package.json at release time (see MAINTAINERS.md).
+let LIB_VERSION = '1.3.0';
 try {
     if (typeof process !== 'undefined' && process.env && process.env.npm_package_version) {
         LIB_VERSION = process.env.npm_package_version;
@@ -146,7 +148,14 @@ class PPTXViewer {
             // New: simplify integration by auto-exposing globals for chart relationship resolution
             autoExposeGlobals: userOptions.autoExposeGlobals ?? true,
             // New: schedule one delayed re-render to catch async chart parsing
-            autoChartRerenderDelayMs: userOptions.autoChartRerenderDelayMs ?? 200
+            autoChartRerenderDelayMs: userOptions.autoChartRerenderDelayMs ?? 200,
+            // New: opt-in/out of bundled Carlito metric-compatible Calibri substitute.
+            // Defaults to true for correct Calibri measurement widths on systems
+            // without Calibri installed. Opt out with `false`.
+            substituteCalibri: userOptions.substituteCalibri ?? true,
+            // New: override base URL for the bundled `fonts/` directory. Useful
+            // for unusual bundling setups (Electron packed assets, custom CDNs).
+            fontBaseUrl: userOptions.fontBaseUrl ?? null
         };
         Object.assign(this.options, userOptions);
 
@@ -158,6 +167,17 @@ class PPTXViewer {
         this.eventListeners = {};
         this._initPromise = null;
         this._scheduledPostLoadRerender = false;
+
+        // Kick off font substitution in the background so the first render has
+        // Calibri-compatible metrics. render() awaits this promise before
+        // drawing to avoid a flash of wrong-metric fallback glyphs.
+        if (this.options.substituteCalibri !== false) {
+            this._fontsReadyPromise = ensurePptxViewFonts({
+                fontBaseUrl: this.options.fontBaseUrl || undefined
+            });
+        } else {
+            this._fontsReadyPromise = Promise.resolve();
+        }
     }
 
     async _initializeProcessor() {
@@ -266,7 +286,12 @@ class PPTXViewer {
         const targetCanvas = canvas || this.options.canvas;
         if (!targetCanvas) {throw new Error('Canvas element required. Provide canvas parameter or set in constructor.');}
         const slideIndex = options.slideIndex !== undefined ? options.slideIndex : this.currentSlideIndex;
-        if (slideIndex < 0 || slideIndex >= this.slideCount) {throw new Error(`Invalid slide index: ${slideIndex}.`);}        
+        if (slideIndex < 0 || slideIndex >= this.slideCount) {throw new Error(`Invalid slide index: ${slideIndex}.`);}
+        // Ensure Carlito (Calibri metric substitute) is loaded before the first
+        // render so initial measurement widths match PowerPoint/Google Slides.
+        if (this._fontsReadyPromise) {
+            try { await this._fontsReadyPromise; } catch(_e) {}
+        }
         try {
             this.emit('renderStart', slideIndex);
             await this.processor.renderSlide(targetCanvas, slideIndex, options);

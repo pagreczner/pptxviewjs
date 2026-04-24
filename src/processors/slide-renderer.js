@@ -4418,6 +4418,26 @@ class PPTXSlideRenderer {
                 props.rightMargin = parseInt(bodyPrElement.getAttribute('rIns')) || 45720;
                 props.topMargin = parseInt(bodyPrElement.getAttribute('tIns')) || 22860; // Default ~0.025 inch (0.625mm) 
                 props.bottomMargin = parseInt(bodyPrElement.getAttribute('bIns')) || 22860;
+
+                // Autofit: PPT supports <a:normAutofit>, <a:noAutofit/>, and <a:spAutoFit/>.
+                // Only normAutofit carries numeric attributes (fontScale, lnSpcReduction).
+                // Values are in thousandths of a percent; convert to ratios.
+                const normAutofitEl = bodyPrElement.querySelector('normAutofit, a\\:normAutofit');
+                const noAutofitEl = bodyPrElement.querySelector('noAutofit, a\\:noAutofit');
+                const spAutoFitEl = bodyPrElement.querySelector('spAutoFit, a\\:spAutoFit');
+                if (normAutofitEl) {
+                    const fontScaleRaw = parseInt(normAutofitEl.getAttribute('fontScale'), 10);
+                    const lnSpcReductionRaw = parseInt(normAutofitEl.getAttribute('lnSpcReduction'), 10);
+                    props.autofit = {
+                        type: 'normal',
+                        fontScale: Number.isFinite(fontScaleRaw) ? fontScaleRaw / 100000 : 1,
+                        lnSpcReduction: Number.isFinite(lnSpcReductionRaw) ? lnSpcReductionRaw / 100000 : 0
+                    };
+                } else if (noAutofitEl) {
+                    props.autofit = { type: 'none', fontScale: 1, lnSpcReduction: 0 };
+                } else if (spAutoFitEl) {
+                    props.autofit = { type: 'shape', fontScale: 1, lnSpcReduction: 0 };
+                }
             }
         } catch (_error) {
 				// Error ignored

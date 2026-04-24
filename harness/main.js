@@ -134,8 +134,26 @@ async function initializeViewer({ reloadCurrentFile = false } = {}) {
   try {
     destroyViewer();
     const ViewerClass = await loadViewerClass(state.mode);
-    state.viewer = new ViewerClass({ canvas: refs.canvas });
+    // In dev the source module lives at /src/utils/font-loader.js so the
+    // default `../fonts/` resolution lands in /src/fonts/. Override the base
+    // URL to the project-root /fonts/ directory so both Source and Dist
+    // runtimes find the bundled Carlito woff2 files during manual testing.
+    state.viewer = new ViewerClass({
+      canvas: refs.canvas,
+      fontBaseUrl: "/fonts/",
+    });
     updateStatus();
+
+    // Deterministic first paint: wait for any registered fonts to load before
+    // asking the viewer to render. The viewer also awaits this internally, but
+    // awaiting here keeps test timing predictable.
+    if (typeof document !== "undefined" && document.fonts && document.fonts.ready) {
+      try {
+        await document.fonts.ready;
+      } catch (_err) {
+        // No-op; viewer will still fall back to the native stack if needed.
+      }
+    }
 
     if (reloadCurrentFile && state.loadedFile) {
       await state.viewer.loadFile(state.loadedFile);

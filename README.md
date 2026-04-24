@@ -101,6 +101,42 @@ npm install jszip
 npm install chart.js
 ```
 
+## Typography: Calibri Substitution
+
+Decks authored in PowerPoint overwhelmingly use **Calibri**. Because Calibri is not installed on most macOS, Linux, and many Windows-without-Office machines, browsers silently fall back to a different font with different glyph widths. That causes titles and bullets to wrap at the wrong points compared to PowerPoint and Google Slides.
+
+PptxViewJS bundles **Carlito**, Google's open-source, metric-compatible substitute for Calibri (SIL OFL 1.1). It has identical per-character widths, so wrapping matches PowerPoint regardless of the viewer's host OS.
+
+**How it works:**
+
+- The viewer registers Carlito at construction time under a library-scoped font family name (`PptxViewJS-Calibri`), not the literal `Calibri`. Your app's other `font-family: Calibri` usages are unaffected.
+- The rendering code prepends the scoped name to the canvas font stack only for runs that declare `Calibri`. So measurement and drawing both use Carlito metrics.
+- The woff2 files are served from a pinned jsDelivr CDN URL by default, so it works out of the box in any browser-based setup (React, Next.js, Vite, Webpack, UMD via CDN) without consumer asset configuration.
+
+**Configuration:**
+
+```typescript
+new PPTXViewer({
+  canvas,
+  // Defaults:
+  substituteCalibri: true,    // Disable by passing `false`.
+  fontBaseUrl: undefined,      // Override default jsDelivr URL. Accepts absolute
+                               // URLs or site-relative paths ("/fonts/").
+});
+```
+
+**When to override `fontBaseUrl`:**
+
+- **Strict CSP (no external fonts)**: copy `node_modules/@petepetepete/pptxviewjs/fonts/` into your public/static directory and pass `fontBaseUrl: '/fonts/'`.
+- **Offline / airgapped deployments**: same as above.
+- **Vendoring on your own CDN**: pass the absolute URL.
+
+**When to disable entirely (`substituteCalibri: false`):**
+
+- Your application already loads real Calibri (licensed).
+- Your deck does not use Calibri.
+- You want the absolute smallest possible behavior surface.
+
 ## 🧪 Local Harness (Manual Testing)
 
 This fork includes a local manual test harness with hot reload for render debugging and regression checks.

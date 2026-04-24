@@ -6870,10 +6870,17 @@ class CDrawingDocument {
 
             const safeContentWidth = Math.max(0, contentWidthPx);
 
+            // Match render-path wrap width semantics: carve out paragraph left
+            // indent (marL) so estimates don't under-count the line count for
+            // bulleted / indented paragraphs.
+            const estScale = this.coordinateSystem?.scale || 1;
+
             let total = 0;
             for (const paragraph of textBody.paragraphs) {
                 const paraProps = this.parseParagraphProperties(paragraph, this.getCurrentShape());
-                const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, safeContentWidth, this.getCurrentShape());
+                const indentLeftPx = Math.max(0, this.emuToPixels(paraProps.indent?.left || 0) * estScale);
+                const effectiveMaxWidth = Math.max(0, safeContentWidth - indentLeftPx);
+                const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, effectiveMaxWidth, this.getCurrentShape());
                 const spaceBeforePx = this.emuToPixels(paraProps.spaceBefore || 0);
                 const spaceAfterPx = this.emuToPixels(paraProps.spaceAfter || 0);
                 // Per-line line heights so mixed-size paragraphs estimate correctly
@@ -6954,8 +6961,14 @@ class CDrawingDocument {
             const currentShape = this.getCurrentShape();
             const paraProps = this.parseParagraphProperties(paragraph, currentShape);
 
-            // Calculate wrapped lines for this paragraph
-            const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, textAreaWidth, currentShape);
+            // Calculate wrapped lines for this paragraph. The wrap width must
+            // account for any paragraph left indent (marL) because the render
+            // loop below starts text at `textAreaX + indentLeft`. Using the
+            // full textAreaWidth for wrap would allow lines to extend past the
+            // right edge of the text box.
+            const indentLeftPx = Math.max(0, this.emuToPixels(paraProps.indent?.left || 0) * scale);
+            const effectiveMaxWidth = Math.max(0, textAreaWidth - indentLeftPx);
+            const wrappedLines = this.calculateWrappedLines(paragraph, paraProps, effectiveMaxWidth, currentShape);
 
             // Per-line heights so mixed-size paragraphs render each line at its
             // own correct height (PowerPoint/Google Slides behavior).
@@ -7390,6 +7403,37 @@ class CDrawingDocument {
         let currentLine = { runs: [], width: 0 };
         let isFirstRun = true;
 
+        // Honor <a:bodyPr wrap="none"> on the containing shape: PPT does not
+        // auto-wrap these, so we produce one line per explicit newline and
+        // accept potential overflow past the text body (matching PPT).
+        const wrapDisabled = currentShape
+            && currentShape.textBody
+            && currentShape.textBody.bodyProperties
+            && currentShape.textBody.bodyProperties.wrap === false;
+
+        if (wrapDisabled) {
+            for (const run of paragraph.runs) {
+                if (!run || !run.text) {continue;}
+                const runProps = this.parseRunProperties(run, paraProps, currentShape);
+                const segments = String(run.text).split('\n');
+                for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+                    if (segIdx > 0) {
+                        lines.push(currentLine);
+                        currentLine = { runs: [], width: 0 };
+                    }
+                    const segment = segments[segIdx];
+                    if (!segment) {continue;}
+                    const segWidth = this.measureRunText(segment, runProps);
+                    currentLine.runs.push({ text: segment, runProps });
+                    currentLine.width += segWidth;
+                }
+            }
+            if (currentLine.runs.length > 0 || lines.length === 0) {
+                lines.push(currentLine);
+            }
+            return lines;
+        }
+
         for (const run of paragraph.runs) {
             if (!run.text) {continue;}
 
@@ -7547,10 +7591,19 @@ class CDrawingDocument {
         const fontStyle = runProps.italic ? 'italic' : 'normal';
         const fontWeight = runProps.bold ? 'bold' : 'normal';
         const fontFamily = runProps.fontFamily || 'Arial';
-        
+
+        // Prepend the library-scoped Carlito (metric-compatible Calibri
+        // substitute) for Calibri runs. Registered in `document.fonts` under
+        // the scoped name `PptxViewJS-Calibri` to avoid colliding with any
+        // `font-family: Calibri` the host app uses elsewhere.
+        const isCalibri = typeof fontFamily === 'string' && fontFamily.trim().toLowerCase() === 'calibri';
+        const primaryFont = isCalibri
+            ? `"PptxViewJS-Calibri", "${fontFamily}"`
+            : `"${fontFamily}"`;
+
         // Include emoji-capable fonts in font stack for Unicode character support
         // Use system fonts that are more likely to be available
-        const fontStack = `"${fontFamily}", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif`;
+        const fontStack = `${primaryFont}, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif`;
 
         ctx.font = `${fontStyle} ${fontWeight} ${scaledFontSize}px ${fontStack}`;
         ctx.fillStyle = this.graphics.colorToRgb(runProps.color);
@@ -8477,6 +8530,20 @@ class CDrawingDocument {
             }
         }
 
+        // Apply normAutofit lnSpcReduction (if present on the shape's bodyPr).
+        // PowerPoint reduces effective line spacing by this factor when
+        // shrink-to-fit is enabled. Apply to both percent and absolute forms.
+        const autofit = shape && shape.textBody && shape.textBody.bodyProperties && shape.textBody.bodyProperties.autofit;
+        if (autofit && autofit.type === 'normal' && typeof autofit.lnSpcReduction === 'number' && autofit.lnSpcReduction > 0 && autofit.lnSpcReduction < 1) {
+            const factor = 1 - autofit.lnSpcReduction;
+            if (typeof props.lineHeight === 'number') {
+                props.lineHeight = props.lineHeight * factor;
+            }
+            if (typeof props.lineHeightPoints === 'number') {
+                props.lineHeightPoints = props.lineHeightPoints * factor;
+            }
+        }
+
         return props;
     }
 
@@ -8578,6 +8645,16 @@ class CDrawingDocument {
             // Text effects (shadow, glow)
             if (rProps.effectLst) {
                 props.effectLst = rProps.effectLst;
+            }
+        }
+
+        // Apply normAutofit fontScale (if present on the shape's bodyPr) as a
+        // final multiplier on the resolved font size. PowerPoint uses this to
+        // shrink text to fit when "Resize text on overflow" is enabled.
+        const autofit = shape && shape.textBody && shape.textBody.bodyProperties && shape.textBody.bodyProperties.autofit;
+        if (autofit && autofit.type === 'normal' && typeof autofit.fontScale === 'number' && autofit.fontScale > 0 && autofit.fontScale < 1) {
+            if (typeof props.fontSize === 'number' && props.fontSize > 0) {
+                props.fontSize = props.fontSize * autofit.fontScale;
             }
         }
 

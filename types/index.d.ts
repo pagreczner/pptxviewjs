@@ -10,6 +10,34 @@ export interface PPTXViewerOptions {
   slideSizeMode?: 'fit' | 'actual' | 'custom';
   backgroundColor?: string;
   logger?: Console;
+  /**
+   * Auto-render slide 0 after `loadFile()` completes. Defaults to `true`.
+   */
+  autoRenderFirstSlide?: boolean;
+  /**
+   * Auto-expose PPTX processor globals to simplify chart integration. Defaults to `true`.
+   */
+  autoExposeGlobals?: boolean;
+  /**
+   * Schedule one delayed re-render after load to catch late-parsing charts
+   * (milliseconds). Set to `0` to disable. Defaults to `200`.
+   */
+  autoChartRerenderDelayMs?: number;
+  /**
+   * Bundle and apply Carlito (metric-compatible Calibri substitute) so Calibri
+   * runs measure and render with PowerPoint-equivalent widths. Defaults to
+   * `true`. Set to `false` to disable (useful for strict CSP / offline deploys
+   * or when you manage Calibri yourself).
+   */
+  substituteCalibri?: boolean;
+  /**
+   * Override the base URL used to fetch the bundled Carlito woff2 files.
+   * Accepts absolute URLs (`"https://my.cdn/fonts/"`) or site-relative paths
+   * (`"/fonts/"`). When omitted, defaults to a pinned jsDelivr CDN URL that
+   * tracks the installed package version. Useful for offline / airgapped /
+   * CSP-restricted deployments.
+   */
+  fontBaseUrl?: string | null;
   [key: string]: unknown;
 }
 
